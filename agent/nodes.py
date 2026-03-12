@@ -147,23 +147,23 @@ def confirm_command(state: AgentState) -> AgentState:
     else:
         return {"confirmation": "yes"}
     
-
+    
 def execute_command(state: AgentState) -> AgentState:
 
     if state.get('confirmation', 'yes') == "yes":        
         result = subprocess.run(
-            ["powershell", "-Command", state['cmd']],
+            ["powershell", "-Command", f"{state['cmd']}; Get-Location | Select-Object -ExpandProperty Path"],
             capture_output=True,
             text=True,
             cwd=state['cwd']
         )
 
         if result.returncode == 0:
-            # returncode 0 means success
-            output = result.stdout if result.stdout else "Command executed successfully."
-            return {"result": output}
+            lines = result.stdout.strip().splitlines()
+            new_cwd = lines[-1].strip() if lines else state['cwd']
+            output = "\n".join(lines[:-1]) if len(lines) > 1 else "Command executed successfully."
+            return {"result": output, "cwd": new_cwd}        
         else:
-            # non-zero returncode means something went wrong
-            return {"result": f"Error: {result.stderr}"}
+            return {"result": f"Error: {result.stderr}", "cwd": state['cwd']}
     else:
-        return {"result": "Command cancelled by user."}
+        return {"result": "Command cancelled by user.", "cwd": state['cwd']}
