@@ -1,5 +1,5 @@
-from langchain_ollama import ChatOllama
-# from langchain_groq import ChatGroq
+# from langchain_ollama import ChatOllama
+from langchain_groq import ChatGroq
 from .state import AgentState
 from pydantic import BaseModel, Field
 from typing import Literal
@@ -8,6 +8,10 @@ from langchain_core.messages.system import SystemMessage
 import subprocess
 from dotenv import load_dotenv
 load_dotenv()
+
+_confirm_fn = None  # Pluggable callback for UI to override confirm_command
+
+# OLLAMA_MODEL = ""
 
 BLACKLIST = [
         # System Critical Paths
@@ -99,11 +103,17 @@ def generate_command(state: AgentState) -> str:
         intent: chat
         cmd: ""
         response: I'm doing great! How can I help you today?
+                  
+        User: create a file called "readme.txt" and write "hello world" in it 
+        intent: command  
+        cmd: New-Item -ItemType File -Name "readme.txt" -Force; Set-Content -Path "readme.txt" -Value "hello world"
+        response: ""
+                  
         """),
     HumanMessage(content=f"Current working directory: {state['cwd']}\nUser request: {state['text']}")
 ]
-    # llm = ChatGroq(model="llama-3.1-8b-instant")
-    llm = ChatOllama(model="qwen2.5-coder:3b")
+    llm = ChatGroq(model="llama-3.3-70b-versatile")
+    # llm = ChatOllama(model=OLLAMA_MODEL)
     model = llm.with_structured_output(CommandOutput)
 
     response = model.invoke(messages)
@@ -125,7 +135,8 @@ def check_command(state: AgentState) -> AgentState:
         HumanMessage(content=f"Command to analyze: {cmd}")
     ]
 
-    llm = ChatOllama(model="qwen2.5-coder:3b")
+    llm = ChatGroq(model="llama-3.3-70b-versatile")
+    # llm = ChatOllama(model=OLLAMA_MODEL)
     model = llm.with_structured_output(safety_check)
 
     response = model.invoke(messages)
@@ -138,6 +149,8 @@ def check_command(state: AgentState) -> AgentState:
 
 
 def confirm_command(state: AgentState) -> AgentState:
+    if _confirm_fn is not None:
+        return _confirm_fn(state)
     if state['is_risky']:
         user_input = input(f"Are you sure you want to execute the command: {state['cmd']}? (yes/no): ")
         if user_input.lower() == "yes":
