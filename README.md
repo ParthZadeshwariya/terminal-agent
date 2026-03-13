@@ -1,89 +1,185 @@
-# Terminal Agent
+<div align="center">
 
-> A powerful, native Windows application that translates natural language commands into actionable PowerShell commands or provides casual chat responses.
+# 🤖 TERMAGENT
 
-## Quick Start
+**Your terminal, in plain English.**
 
-Get running in less than 2 minutes!
+[![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://python.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![LangGraph](https://img.shields.io/badge/LangGraph-Stateful_Agents-orange)](https://github.com/langchain-ai/langgraph)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20PowerShell-blueviolet)](https://microsoft.com/powershell)
+
+<br/>
+
+*An AI agent for Windows that turns natural language into PowerShell commands — with safety checks, human confirmation, and a stunning terminal UI.*
+
+</div>
+
+---
+
+<br/>
+
+```powershell
+❯ delete all log files older than 7 days
+  ⚠ Risky command detected
+  Get-ChildItem -Path . -Filter *.log | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-7) } | Remove-Item
+  → Confirmed ✓ Done
+```
+
+<br/>
+
+## ✨ Why Termagent?
+
+Most developers waste time Googling half-remembered commands. Non-technical users are locked out of the terminal entirely. Termagent bridges that gap — you describe what you want, it figures out the PowerShell.
+
+- 🔒 **Private by default** — runs on Groq
+- 🪟 **Windows-native** — built for PowerShell, not an afterthought port
+- 🛡️ **Safety-first** — two-layer risk detection before anything runs
+- 🧠 **Actually understands context** — knows your current directory, chains multi-step operations
+
+<br/>
+
+## 🚀 Quick Start
+
+Get started in under 3 minutes!
 
 ```bash
-# 1. Install Dependencies
-pip install -r requirements.txt
-
-# 2. Run the TUI Dashboard
-python ui.py
+pip install termagent-cli
+termagent
 ```
 
-*Note: The application will prompt you automatically for a Groq API key upon first run.*
+💡 *On your first run, you'll be prompted for a Groq API key. Get one free at [console.groq.com](https://console.groq.com).*
 
----
+<br/>
 
-## Features
+## 🔥 Features
 
-- **Natural Language to PowerShell:** Ask it to "create a new folder named test" and it seamlessly translates it to `New-Item -ItemType Directory -Name "test"`.
-- **Chat vs Command Routing:** Differentiates between system operations and casual conversation.
-- **Safety First:** A strict safety check layer powered by both an LLM review and a comprehensive blacklist prevents execution of high-risk or destructive commands.
-- **Human-in-the-Loop (HITL):** Before executing any flagged risky command, the agent halts and requests explicit user confirmation.
-- **Rich Terminal UI (TUI):** Includes a visually pleasing and interactive TUI developed using Textual, featuring response animations, real-time command processing, and native aesthetic matching.
-- **Persistent Context:** The `cwd` (Current Working Directory) is updated in real-time.
-- **Extensible Architecture:** LangGraph-based framework makes the prompt flow modular and easy to extend.
+### 🗣️ Natural Language &rarr; PowerShell
+```powershell
+❯ create a folder named "api" and add a file called readme.txt inside it
+  ✓ Done
+```
 
----
+### 🧠 Smart Intent Routing
+Termagent knows the difference between a command and a question.
+```powershell
+❯ what is powershell?
+  ◌ PowerShell is a cross-platform task automation solution...
+```
 
-## Configuration
+### 🛡️ Two-Layer Safety System
+Every command passes through:
+1. **Static blacklist** — instantly blocks system-critical operations (`System32`, `regedit`, `diskpart`, remote code execution, etc.)
+2. **LLM security review** — catches context-sensitive risks the blacklist can't predict
 
-You can configure the application using environment variables. 
+### ✋ Human-in-the-Loop (HITL)
+Flagged commands never execute silently. You always get the final say.
+```powershell
+⚠ Risky command detected:
+  Remove-Item -Path "C:\Users\..." -Recurse -Force
+  Type yes to confirm or no to cancel
+```
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `GROQ_API_KEY` | Your Groq API key for LLaMA-3.3-70b-versatile access | `gsk_ABCXYZ` |
+### 📂 Persistent Working Directory
+Navigate freely — the agent always knows where you are.
+```powershell
+❯ go into the project folder
+  ✓ Done
+❯ create a file named notes.txt
+  ✓ Done  ← created inside project/, not the root
+```
 
-Create a `.env` file in the root directory to store your API key.
+<br/>
 
----
+## 💾 Installation
 
-## Architecture Flow
+### Requirements
+- Windows (PowerShell)
+- Python 3.10+
+- Groq API key — free at [console.groq.com](https://console.groq.com)
 
-The underlying logic is designed around a directed graph using LangGraph (`agent/graph.py`).
+### Install
+```bash
+pip install termagent-cli
+```
 
-![Workflow Graph](graph.png)
+### Run
+```bash
+termagent
+```
 
-### Core Pipeline
+Or without PATH setup:
+```bash
+python -m termagent
+```
 
-1. **`generate_command`**: Evaluates the user's prompt (with LLM structural output) to determine intent ('chat' vs 'command') and builds the respective command or chat string.
-2. **Intent Routing**: 
-   - If `intent == "chat"`, it routes to `chat_node`.
-   - If `intent == "command"`, it routes to `check_command`.
-3. **`check_command`**: A secondary safety layer where the system checks the generated PowerShell command against:
-   - A robust static `BLACKLIST` of restricted patterns.
-   - An LLM-powered security review to evaluate operational risk dynamically.
-4. **`confirm_command`**: If flagged as risky (`is_risky == True`), the workflow stalls for human approval.
-5. **`execute_command`**: The approved (or safe) command is invoked via `subprocess.run()`, returning standard output and tracking state changes such as directory traversal.
+<br/>
 
----
+## ⚙️ Configuration
 
-## Project Structure
+| Variable | Description |
+|:---:|---|
+| `GROQ_API_KEY` | Your Groq API key (prompted on first run) |
+
+*Termagent saves your key to a local `.env` file on first run — you won't be asked again.*
+
+<br/>
+
+## 📐 Architecture
+
+Termagent is built on **[LangGraph](https://github.com/langchain-ai/langgraph)** — a stateful agent framework. The pipeline is a directed graph:
+
+```mermaid
+flowchart TD
+    A["__start__"] --> B["generate_command"]
+    B -->|"intent: chat"| C["chat_node"]
+    B -->|"intent: command"| D["check_command"]
+    D -->|"safe"| F["execute_command"]
+    D -->|"risky"| E["confirm_command"]
+    E -->|"execute"| F["execute_command"]
+    E -->|"do_not_execute"| G["__end__"]
+    C --> G
+    F --> G
+```
+
+### 🛠️ Tech Stack
+- **LangGraph** — agent orchestration
+- **Groq** — LLM inference
+- **Textual** — terminal UI framework
+- **subprocess** — PowerShell execution
+
+<br/>
+
+## 🏗️ Project Structure
 
 ```text
-terminal-agent/
-├── main.py        # Lightweight, loop-based Command Line Interface.
-├── ui.py          # Rich Textual Application serving as the primary frontend dashboard.
-├── viz.py         # Lightweight script used for generating the workflow visualization.
-└── agent/         # Core AI agent logic
-    ├── graph.py   # LangGraph state machine mapping edges, paths, and flow conditions.
-    ├── nodes.py   # Encapsulates logic for LLM operations, structured outputs, security evaluation.
-    └── state.py   # Strongly-typed state definition handling attributes like cwd, text, intent.
+termagent/
+├── agent/
+│   ├── graph.py     # LangGraph state machine workflow
+│   ├── nodes.py     # LLM API calls, safety checks, execution logic
+│   └── state.py     # AgentState TypedDict definition
+└── ui.py            # Textual TUI layout + CLI entry point
 ```
 
+<br/>
+
+## ⚠️ Safety Disclaimer
+
+> ⚠️ Termagent executes real PowerShell commands on your system. While dual-layer safety checks significantly reduce risk, always review flagged commands before confirming. The authors are not responsible for unintended system changes.
+
+<br/>
+
+## 🤝 Contributing
+
+Pull requests are welcome. For major changes, open an issue first.
+
+<br/>
+
+## 📜 License
+
+MIT
+
 ---
-
-## Development
-
-- **Visualizing Workflows:** Execute `python viz.py` to regenerate the `graph.png` visualization.
-- **Extending Security:** Refine the list of blocked items by updating the `BLACKLIST` array inside `agent/nodes.py`.
-
----
-
-## Safety Disclaimer
-
-> **⚠️ Warning:** Even with dual safety layers, running autonomous LLM-generated commands on local file systems carries inherent risks. Always verify prompt contexts and system responses, particularly around OS-integrated tasks.
+<div align="center">
+  <b>Built with ❤️ for Windows users who love the terminal.</b>
+</div>
