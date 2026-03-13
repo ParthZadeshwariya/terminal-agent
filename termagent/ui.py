@@ -219,8 +219,8 @@ class TermAgent(App):
 
     @work(thread=True)
     def process_input(self, user_input: str) -> None:
-        from agent.graph import app as agent_app
-        import agent.nodes as nodes
+        from termagent.agent.graph import app as agent_app
+        import termagent.agent.nodes as nodes
         import threading
 
         outer_self = self
@@ -320,8 +320,7 @@ class TermAgent(App):
         self.query_one("#output-log", RichLog).clear()
         self._clear_status()
 
-
-if __name__ == "__main__":
+def main():
     from dotenv import load_dotenv
     load_dotenv()
 
@@ -341,3 +340,6 @@ if __name__ == "__main__":
 
     app = TermAgent()
     app.run()
+
+if __name__ == "__main__":
+    main()

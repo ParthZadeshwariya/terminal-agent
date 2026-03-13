@@ -1,2 +1,16 @@
-__pycache__/
+# Environment
 .env
+
+# Python cache
+__pycache__/
+*.egg-info/
+*.pyc
+
+# Build artifacts
+dist/
+build/
+
+# Misc
+graph.png
+viz.py
+main.py

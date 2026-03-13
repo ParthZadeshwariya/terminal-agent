@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "termagent"
+version = "0.1.0"
+description = "Natural language terminal agent for Windows PowerShell"
+requires-python = ">=3.10"
+dependencies = [
+    "langchain-ollama",
+    "langchain-groq",
+    "langchain-core",
+    "langchain",
+    "langgraph",
+    "pydantic",
+    "python-dotenv",
+    "ollama",
+    "textual",
+    "rich",
+]
+
+[project.scripts]
+termagent = "termagent.ui:main"
