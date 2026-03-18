@@ -62,12 +62,22 @@ termagent
 ```
 
 ### 🧠 Smart Intent Routing
-Termagent knows the difference between a command and a question.
+Termagent knows the difference between a command,a question and sending an email.
 ```powershell
 ❯ what is powershell?
   ◌ PowerShell is a cross-platform task automation solution...
 ```
-
+### 📧 Email Sending
+Termagent can compose and send emails directly from the terminal — with or without attachments.
+```
+❯ send report.pdf to john@gmail.com
+  ✓ Email sent to john@gmail.com successfully.
+```
+```
+❯ mail the project proposal to boss@company.com with subject "Q3 Proposal"
+  ✓ Email sent to boss@company.com successfully.
+```
+Termagent automatically composes a professional email body, signs it with your name, and attaches the file from your current working directory.
 ### 🛡️ Two-Layer Safety System
 Every command passes through:
 1. **Static blacklist** — instantly blocks system-critical operations (`System32`, `regedit`, `diskpart`, remote code execution, etc.)
@@ -121,8 +131,9 @@ python -m termagent
 | Variable | Description |
 |:---:|---|
 | `GROQ_API_KEY` | Your Groq API key (prompted on first run) |
+| `EMAIL_PASSWORD` | Get App Password for your gmail account [here](https://support.google.com/accounts/answer/185833?hl=en) (prompted on first run) |
 
-*Termagent saves your key to a local `.env` file on first run — you won't be asked again.*
+*Termagent saves your key, passwords and email address to a local `.env` file on first run — you won't be asked again.*
 
 <br/>
 

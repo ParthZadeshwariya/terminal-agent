@@ -4,11 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "termagent-cli"
-version = "0.1.0"
+version = "0.2.0"
 description = "Natural language terminal agent for Windows PowerShell"
 requires-python = ">=3.10"
 dependencies = [
-    "langchain-ollama",
     "langchain-groq",
     "langchain-core",
     "langchain",
