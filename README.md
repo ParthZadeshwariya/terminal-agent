@@ -16,7 +16,7 @@
 </div>
 
 ---
-![demo-image](assets/Screenshot.png)
+![demo-image](assets/graph.png)
 
 <br/>
 
@@ -131,7 +131,7 @@ python -m termagent
 | Variable | Description |
 |:---:|---|
 | `GROQ_API_KEY` | Your Groq API key (prompted on first run) |
-| `EMAIL_PASSWORD` | Get App Password for your gmail account [here](https://support.google.com/accounts/answer/185833?hl=en) (prompted on first run) |
+| `EMAIL_PASSWORD` | Get App Password for your gmail account [here](myaccount.google.com/apppasswords) (prompted on first run) |
 
 *Termagent saves your key, passwords and email address to a local `.env` file on first run — you won't be asked again.*
 
