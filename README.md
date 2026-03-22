@@ -16,7 +16,7 @@
 </div>
 
 ---
-![demo-image](assets/graph.png)
+![demo-image](assets/demo.png)
 
 <br/>
 
@@ -101,6 +101,10 @@ Navigate freely — the agent always knows where you are.
 ```
 
 <br/>
+
+## Agent Architecture
+
+![demo-image](assets/graph.png)
 
 ## 💾 Installation
 
