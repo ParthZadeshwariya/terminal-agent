@@ -94,6 +94,8 @@ def generate_command(state: AgentState) -> str:
         - If the intent is "email", populate the email field with recipient, subject, body, and attachment (if any). 
             Add a disclaimer at the end of the body that the email is sent by 'Termagent'. Leave cmd and response empty.  
         - When composing email bodies, sign off with the user's actual name provided in "User's name", never use placeholders like [your name]. 
+        - Keep the mail structure well formatted.
+        
         PREFERRED CMDLETS:
         - Files/Folders: New-Item, Remove-Item, Copy-Item, Move-Item, Rename-Item, Get-ChildItem
         - Read/Write: Set-Content, Get-Content, Add-Content
@@ -217,6 +219,9 @@ def email_node(state: AgentState) -> AgentState:
     sender = os.getenv("EMAIL_ADDRESS")
     password = os.getenv("EMAIL_PASSWORD")
 
+    if not sender or not password:
+        return {"result": "EMAIL_SETUP_REQUIRED"}
+
     try:
         msg = MIMEMultipart()
         msg['From'] = sender
@@ -238,7 +243,10 @@ def email_node(state: AgentState) -> AgentState:
                 msg.attach(part)
 
         # Send via Gmail SMTP
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+        with smtplib.SMTP('smtp.gmail.com', 587) as server:
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
             server.login(sender, password)
             server.sendmail(sender, email_data['recipient'], msg.as_string())
 
@@ -250,3 +258,26 @@ def email_node(state: AgentState) -> AgentState:
         return {"result": "Error: Email authentication failed. Check your EMAIL_ADDRESS and EMAIL_PASSWORD in .env"}
     except Exception as e:
         return {"result": f"Error sending email: {str(e)}"}
+    
+
+# Keywords that indicate user wants to send an email
+EMAIL_KEYWORDS = [
+    "send email", "send an email", "send a email",
+    "send mail", "send a mail", "send an mail",
+    "email to", "mail to", "mail", "email", "e-mail", "e-mail to",
+    "compose email", "compose a mail", "compose an email",
+    "write email", "write a mail", "write an email",
+    "draft email", "draft a mail", "draft an email",
+]
+
+def pre_check(state: AgentState) -> AgentState:
+    """Check if the user is requesting email functionality before invoking the LLM.
+    If email keywords are detected and email is not enabled, short-circuit immediately.
+    """
+    text_lower = state["text"].lower()
+    is_email_request = any(kw in text_lower for kw in EMAIL_KEYWORDS)
+
+    if is_email_request and not state.get("email_enabled", False):
+        return {"result": "EMAIL_SETUP_REQUIRED", "early_exit": True}
+
+    return {"early_exit": False}

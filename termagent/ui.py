@@ -1,3 +1,5 @@
+import time
+
 from textual.app import App, ComposeResult
 from textual.widgets import Input, RichLog, Static, Footer
 from textual.containers import Vertical, Horizontal
@@ -240,7 +242,8 @@ class TermAgent(App):
         nodes._confirm_fn = patched_confirm
 
         try:
-            state = {"text": user_input, "cwd": self.cwd, "user_name": os.getenv("EMAIL_USERNAME")}
+            email_enabled = bool(os.getenv("EMAIL_ADDRESS") and os.getenv("EMAIL_PASSWORD"))
+            state = {"text": user_input, "cwd": self.cwd, "user_name": os.getenv("EMAIL_USERNAME"), "email_enabled": email_enabled}
             result = agent_app.invoke(state)
 
             new_cwd = result.get("cwd", self.cwd)
@@ -262,7 +265,7 @@ class TermAgent(App):
     def _ask_confirmation(self, cmd: str, result_holder: dict, event) -> None:
         # Stop spinner while waiting for user
         self._stop_spinner()
-        self._set_status("[bold yellow]⚠ Risky command — type yes or no[/bold yellow]")
+        self._set_status("[bold yellow] Risky command — type yes or no[/bold yellow]")
 
         log = self.query_one("#output-log", RichLog)
         log.write(Text.from_markup(
@@ -298,6 +301,18 @@ class TermAgent(App):
         self._stop_spinner()
         log = self.query_one("#output-log", RichLog)
 
+        if output == "EMAIL_SETUP_REQUIRED":
+            log.write(Text.from_markup(
+                "[bold yellow]  Email credentials not set up.[/bold yellow]\n"
+                "  [dim]Please set [bold cyan]EMAIL_ADDRESS[/bold cyan] and [bold cyan]EMAIL_PASSWORD[/bold cyan] in your [bold].env[/bold] file.\n"
+                "  Gmail users: generate an App Password at [bold cyan]myaccount.google.com/apppasswords[/bold cyan][/dim]\n"
+                "  [dim]--------------------------OR--------------------------[/dim]\n"
+                "  [dim]Restart TERMAGENT and choose yes to enter credentials interactively.[/dim]"
+            ))
+            self._set_status("[bold yellow] Email setup required[/bold yellow]")
+            self.cwd = new_cwd
+            return
+
         if intent == "chat":
             self._set_status("[dim cyan]◌ responded[/dim cyan]")
             log.write(Text.from_markup(f"  [white]{escape(output)}[/white]"))
@@ -325,32 +340,6 @@ def main():
     load_dotenv()
 
     groq_key = os.getenv("GROQ_API_KEY")
-    email_user = os.getenv("EMAIL_ADDRESS")
-    email_pass = os.getenv("EMAIL_PASSWORD")
-    
-    if not email_user:
-        print("Email credentials not found.")
-        print("Email credentials will only be used when sending an email.")
-        print("""
-            Google doesn't allow regular passwords for SMTP. They need to generate an App Password:
-
-            Go to Google Account → Security → 2-Step Verification → App Passwords
-            Generate one for "Mail"
-        """)
-        email_user_name = input("Enter your name(used for email signatures): ")
-        email_user = input("Enter your email address: ").strip()
-        email_pass = input("Enter your email password/app password: ").strip()
-        
-        save = input("Save to .env for future use? (yes/no): ")
-        if save.lower() == "yes":
-            with open(".env", "a") as f:
-                f.write(f"\nEMAIL_ADDRESS={email_user}")
-                f.write(f"\nEMAIL_PASSWORD={email_pass}")
-                f.write(f"\nEMAIL_USERNAME={email_user_name}")
-
-        os.environ["EMAIL_ADDRESS"] = email_user
-        os.environ["EMAIL_PASSWORD"] = email_pass
-        os.environ["EMAIL_USERNAME"] = email_user_name
     
     if not groq_key:
         print("Groq API key not found.")
@@ -364,6 +353,42 @@ def main():
 
         os.environ["GROQ_API_KEY"] = groq_key
 
+    email_user = os.getenv("EMAIL_ADDRESS")
+    email_pass = os.getenv("EMAIL_PASSWORD")
+    email_enabled = input("Enable email features? (yes/no): ").strip().lower()
+
+    if email_enabled == "yes":
+        email_user = os.getenv("EMAIL_ADDRESS")
+        if not email_user:
+            # ask for credentials
+            print("Email credentials not found.")
+            print("Email credentials will only be used when sending an email.")
+            print("""
+                Google doesn't allow regular passwords for SMTP. They need to generate an App Password:
+                Go to myaccount.google.com/apppasswords
+                Generate one for "Mail"
+            """)
+            email_user_name = input("Enter your name(used for email signatures): ")
+            email_user = input("Enter your email address: ").strip()
+            email_pass = input("Enter your email password/app password: ").strip()
+            
+            save = input("Save to .env for future use? (yes/no): ")
+            if save.lower() == "yes":
+                with open(".env", "a") as f:
+                    f.write(f"\nEMAIL_ADDRESS={email_user}")
+                    f.write(f"\nEMAIL_PASSWORD={email_pass}")
+                    f.write(f"\nEMAIL_USERNAME={email_user_name}")
+
+            os.environ["EMAIL_ADDRESS"] = email_user
+            os.environ["EMAIL_PASSWORD"] = email_pass
+            os.environ["EMAIL_USERNAME"] = email_user_name
+    else:
+        print("Email features will be disabled. You can enable them later by setting EMAIL_ADDRESS and EMAIL_PASSWORD in your .env file.")
+        print("--------------------------OR--------------------------")
+        print("Restart TERMAGENT and choose yes to enter credentials interactively.")
+
+    print("Starting TERMAGENT...")
+    time.sleep(3)
     app = TermAgent()
     app.run()
 

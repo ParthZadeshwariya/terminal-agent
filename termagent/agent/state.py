@@ -11,3 +11,5 @@ class AgentState(TypedDict):
     result: Optional[str]
     email: Optional[dict]
     user_name: Optional[str]
+    email_enabled: Optional[bool]
+    early_exit: Optional[bool]
