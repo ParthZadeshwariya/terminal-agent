@@ -72,7 +72,27 @@ class CommandOutput(BaseModel):
     intent: Literal["command", "chat", "email"] = Field(..., description="Whether the user request is to execute a command, send an email or just a casual chat")
     cmd: str = Field("", description="The PowerShell command to execute, if intent is 'command'")
     response: str = Field("", description="The response to return to the user, if intent is 'chat'")
-    email: Optional[EmailOutput] = Field(None, description="The email to send, if intent is 'email'")
+
+def generate_email(state: AgentState) -> AgentState:
+    messages = [
+        SystemMessage(content="""
+            You are an expert email composer. Generate a professional email based on the user's request.
+
+            RULES:
+            - Use a proper greeting, clear body paragraphs, and a sign-off.
+            - Sign off using the name provided in "User's name". Never use placeholders like [Your Name].
+            - After the sign-off, add a new line: "Sent via Termagent."
+            - If an attachment is mentioned, populate the attachment field with the filename.
+            - Keep the tone professional unless the user specifies otherwise.
+        """),
+        HumanMessage(content=f"User's name: {state.get('user_name', 'User')}\nUser request: {state['text']}")
+    ]
+    llm = ChatGroq(model="llama-3.3-70b-versatile")
+    model = llm.with_structured_output(EmailOutput)
+    response = model.invoke(messages)
+    return {
+        "email": response.model_dump() if response else None
+    }
 
 def generate_command(state: AgentState) -> str:
 
@@ -91,10 +111,6 @@ def generate_command(state: AgentState) -> str:
         - No explanations, no markdown, no backticks
         - If the intent is "chat", return an empty string for cmd and provide the answer in response
         - If the intent is "command", provide the PowerShell command in cmd and leave response empty
-        - If the intent is "email", populate the email field with recipient, subject, body, and attachment (if any). 
-            Add a disclaimer at the end of the body that the email is sent by 'Termagent'. Leave cmd and response empty.  
-        - When composing email bodies, sign off with the user's actual name provided in "User's name", never use placeholders like [your name]. 
-        - Keep the mail structure well formatted.
         
         PREFERRED CMDLETS:
         - Files/Folders: New-Item, Remove-Item, Copy-Item, Move-Item, Rename-Item, Get-ChildItem
@@ -102,11 +118,6 @@ def generate_command(state: AgentState) -> str:
         - Info: Get-Location, Get-Process, Get-Service, ipconfig, whoami
         
         EXAMPLES:
-        User: create a folder named project
-        intent: command
-        cmd: New-Item -ItemType Directory -Name "project"
-        response: ""
-
         User: write "hello world" to notes.txt
         intent: command
         cmd: Set-Content -Path "notes.txt" -Value "hello world"
@@ -121,17 +132,6 @@ def generate_command(state: AgentState) -> str:
         intent: command  
         cmd: New-Item -ItemType File -Name "readme.txt" -Force; Set-Content -Path "readme.txt" -Value "hello world"
         response: ""
-                  
-        User: send report.pdf to john@gmail.com
-        intent: email
-        cmd: ""
-        response: ""
-        email: {
-            "recipient": "john@gmail.com",
-            "subject": "Report",
-            "body": "Please find the attached report.",
-            "attachment": "report.pdf"
-        }
         """),
     HumanMessage(content=f"Current working directory: {state['cwd']}\nUser's name: {state.get('user_name', 'User')}\nUser request: {state['text']}")
     ]
@@ -145,8 +145,7 @@ def generate_command(state: AgentState) -> str:
     return {
         "cmd": response.cmd,
         "intent": response.intent,
-        "response": response.response,
-        "email": response.email.model_dump() if response.email else None
+        "response": response.response
     }
 
 def chat_node(state: AgentState) -> AgentState:
@@ -164,7 +163,7 @@ def check_command(state: AgentState) -> AgentState:
     ]
 
     llm = ChatGroq(model="llama-3.3-70b-versatile")
-    # llm = ChatOllama(model=OLLAMA_MODEL)
+
     model = llm.with_structured_output(safety_check)
 
     response = model.invoke(messages)

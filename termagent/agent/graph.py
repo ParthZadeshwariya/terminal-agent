@@ -1,5 +1,5 @@
 from langgraph.graph import START, END, StateGraph
-from .nodes import generate_command, check_command, confirm_command, execute_command, chat_node, email_node, pre_check
+from .nodes import generate_command, check_command, confirm_command, execute_command, chat_node, email_node, pre_check, generate_email
 from .state import AgentState 
 
 def if_risky(state: AgentState) -> str:
@@ -24,7 +24,7 @@ def route_intent(state: AgentState) -> str:
     if state["intent"] == "command":
         return "check_command"
     elif state["intent"] == "email":
-        return "email_node"
+        return "generate_email"
     else:
         return "chat_node"
 
@@ -32,6 +32,7 @@ graph = StateGraph(AgentState)
 
 graph.add_node("pre_check", pre_check)
 graph.add_node("generate_command", generate_command)
+graph.add_node("generate_email", generate_email)
 graph.add_node("chat_node", chat_node)
 graph.add_node("email_node", email_node)
 graph.add_node("check_command", check_command)
@@ -54,11 +55,12 @@ graph.add_conditional_edges(
     {
         "check_command": "check_command",
         "chat_node": "chat_node",
-        "email_node": "email_node"
+        "generate_email": "generate_email"
     }
 )
 
 graph.add_edge("chat_node", END)
+graph.add_edge("generate_email", "email_node")
 graph.add_edge("email_node", END)
 
 graph.add_conditional_edges(

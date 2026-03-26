@@ -355,23 +355,22 @@ def main():
 
     email_user = os.getenv("EMAIL_ADDRESS")
     email_pass = os.getenv("EMAIL_PASSWORD")
-    email_enabled = input("Enable email features? (yes/no): ").strip().lower()
 
-    if email_enabled == "yes":
-        email_user = os.getenv("EMAIL_ADDRESS")
-        if not email_user:
-            # ask for credentials
+    if email_user and email_pass:
+        print("Email features enabled.")
+    else:
+        email_enabled = input("Enable email features? (yes/no): ").strip().lower()
+        if email_enabled == "yes":
             print("Email credentials not found.")
             print("Email credentials will only be used when sending an email.")
             print("""
-                Google doesn't allow regular passwords for SMTP. They need to generate an App Password:
-                Go to myaccount.google.com/apppasswords
-                Generate one for "Mail"
+                Google doesn't allow regular passwords for SMTP.
+                Go to myaccount.google.com/apppasswords and generate an App Password for "Mail".
             """)
-            email_user_name = input("Enter your name(used for email signatures): ")
+            email_user_name = input("Enter your name (used for email signatures): ")
             email_user = input("Enter your email address: ").strip()
             email_pass = input("Enter your email password/app password: ").strip()
-            
+
             save = input("Save to .env for future use? (yes/no): ")
             if save.lower() == "yes":
                 with open(".env", "a") as f:
@@ -382,13 +381,10 @@ def main():
             os.environ["EMAIL_ADDRESS"] = email_user
             os.environ["EMAIL_PASSWORD"] = email_pass
             os.environ["EMAIL_USERNAME"] = email_user_name
-    else:
-        print("Email features will be disabled. You can enable them later by setting EMAIL_ADDRESS and EMAIL_PASSWORD in your .env file.")
-        print("--------------------------OR--------------------------")
-        print("Restart TERMAGENT and choose yes to enter credentials interactively.")
+        else:
+            print("Email features disabled. Set EMAIL_ADDRESS and EMAIL_PASSWORD in .env to enable later.")
 
     print("Starting TERMAGENT...")
-    time.sleep(3)
     app = TermAgent()
     app.run()
 
