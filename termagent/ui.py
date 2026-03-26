@@ -142,7 +142,10 @@ class TermAgent(App):
 
         with Horizontal(id="input-container"):
             yield Static("❯", id="prompt-label")
-            yield Input(placeholder="Ask me anything or describe what to do...", id="user-input")
+            yield Input(
+                placeholder="Ask anything, or !cmd for raw PowerShell...",
+                id="user-input"
+            )
 
         yield Footer()
 
@@ -153,7 +156,9 @@ class TermAgent(App):
         self.update_cwd_label()
         log = self.query_one("#output-log", RichLog)
         log.write(Text.from_markup(
-            "[dim]Type a command in plain English or ask a question. Type [bold cyan]bye[/bold cyan] to exit.[/dim]\n"
+            "[dim]Type a command in plain English or ask a question. "
+            "Prefix with [bold magenta]![/bold magenta] to run raw PowerShell directly. "
+            "Type [bold cyan]bye[/bold cyan] to exit.[/dim]\n"
         ))
         self.query_one("#user-input", Input).focus()
 
@@ -217,8 +222,73 @@ class TermAgent(App):
         self._start_spinner()
         self.process_input(user_input)
 
-    # ── Agent worker ─────────────────────────────────────────────────────────
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if self._confirmation_handler:
+            self._confirmation_handler(event)
+            return
 
+        user_input = event.value.strip()
+        if not user_input:
+            return
+
+        input_widget = self.query_one("#user-input", Input)
+        input_widget.clear()
+
+        if user_input.lower() == "bye":
+            self.exit()
+            return
+
+        log = self.query_one("#output-log", RichLog)
+
+        # ── NEW: raw command mode ──────────────────────────────
+        if user_input.startswith("!"):
+            raw_cmd = user_input[1:].strip()
+            if raw_cmd:
+                log.write(Text.from_markup(
+                    f"\n[bold magenta]![/bold magenta] [white]{raw_cmd}[/white]"
+                    f"  [dim magenta](raw)[/dim magenta]"
+                ))
+                self._start_spinner()
+                self.run_raw_command(raw_cmd)  # new worker, see Step 4
+            return
+        # ──────────────────────────────────────────────────────
+
+        log.write(Text.from_markup(f"\n[bold cyan]❯[/bold cyan] [white]{user_input}[/white]"))
+        self._start_spinner()
+        self.process_input(user_input)
+
+    # ── Agent worker ─────────────────────────────────────────────────────────
+    @work(thread=True)
+    def run_raw_command(self, cmd: str) -> None:
+        """Execute a PowerShell command directly, bypassing the agent."""
+        import subprocess
+        from rich.markup import escape
+
+        try:
+            result = subprocess.run(
+                ["powershell", "-Command",
+                    f"{cmd}; Get-Location | Select-Object -ExpandProperty Path"],
+                capture_output=True,
+                text=True,
+                cwd=self.cwd
+            )
+
+            if result.returncode == 0:
+                lines = result.stdout.strip().splitlines()
+                new_cwd = lines[-1].strip() if lines else self.cwd
+                output = "\n".join(lines[:-1]) if len(lines) > 1 else "Command executed successfully."
+                self.call_from_thread(self._update_output, output, "command", new_cwd)
+            else:
+                error = result.stderr.strip() or "Unknown error"
+                self.call_from_thread(self._update_output, f"Error: {error}", "command", self.cwd)
+
+        except Exception as e:
+            self.call_from_thread(self._stop_spinner)
+            self.call_from_thread(
+                self._set_status,
+                f"[bold red]✗ Error: {escape(str(e))}[/bold red]"
+            )
+    
     @work(thread=True)
     def process_input(self, user_input: str) -> None:
         from termagent.agent.graph import app as agent_app
