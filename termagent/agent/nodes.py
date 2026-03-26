@@ -66,7 +66,7 @@ class EmailOutput(BaseModel):
     recipient: str = Field(..., description="The recipent of the email")
     subject: str = Field(..., description="The subject of the email")
     body: str = Field(..., description="The body of the email")
-    attachment: Optional[str] = Field(None, description="The attachment of the email")
+    attachment: Optional[list[str]] = Field(None, description="The attachment of the email")
 
 class CommandOutput(BaseModel):
     intent: Literal["command", "chat", "email"] = Field(..., description="Whether the user request is to execute a command, send an email or just a casual chat")
@@ -231,11 +231,12 @@ def email_node(state: AgentState) -> AgentState:
 
         # Attach file if provided
         if email_data.get('attachment'):
-            attachment_path = os.path.join(state['cwd'], email_data['attachment'])
-            with open(attachment_path, 'rb') as f:
-                part = MIMEBase('application', 'octet-stream')
-                part.set_payload(f.read())
-                encoders.encode_base64(part)
+            for file in email_data['attachment']:
+                attachment_path = os.path.join(state['cwd'], file)
+                with open(attachment_path, 'rb') as f:
+                    part = MIMEBase('application', 'octet-stream')
+                    part.set_payload(f.read())
+                    encoders.encode_base64(part)
                 part.add_header(
                     'Content-Disposition',
                     f'attachment; filename={os.path.basename(attachment_path)}'

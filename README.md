@@ -102,7 +102,9 @@ Navigate freely — the agent always knows where you are.
 
 <br/>
 
-## Agent Architecture
+## 📐 Agent Architecture
+
+Termagent is built on **[LangGraph](https://github.com/langchain-ai/langgraph)** — a stateful agent framework. The pipeline is a directed graph:
 
 ![demo-image](assets/graph.png)
 
@@ -140,23 +142,6 @@ python -m termagent
 *Termagent saves your key, passwords and email address to a local `.env` file on first run — you won't be asked again.*
 
 <br/>
-
-## 📐 Architecture
-
-Termagent is built on **[LangGraph](https://github.com/langchain-ai/langgraph)** — a stateful agent framework. The pipeline is a directed graph:
-
-```mermaid
-flowchart TD
-    A["__start__"] --> B["generate_command"]
-    B -->|"intent: chat"| C["chat_node"]
-    B -->|"intent: command"| D["check_command"]
-    D -->|"safe"| F["execute_command"]
-    D -->|"risky"| E["confirm_command"]
-    E -->|"execute"| F["execute_command"]
-    E -->|"do_not_execute"| G["__end__"]
-    C --> G
-    F --> G
-```
 
 ### 🛠️ Tech Stack
 - **LangGraph** — agent orchestration
