@@ -2,7 +2,7 @@
 from langchain_groq import ChatGroq
 
 from .state import AgentState
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Literal, Optional
 
 from langchain_core.messages.human import HumanMessage
@@ -63,10 +63,19 @@ class safety_check(BaseModel):
     is_risky: bool = Field(..., description="Whether the command is potentially risky")
 
 class EmailOutput(BaseModel):
-    recipient: str = Field(..., description="The recipent of the email")
+    recipient: str = Field(..., description="The recipient of the email")
     subject: str = Field(..., description="The subject of the email")
     body: str = Field(..., description="The body of the email")
-    attachment: Optional[list[str]] = Field(None, description="The attachment of the email")
+    attachment: list[str] = Field(default_factory=list, description="Always a list of filenames. For a single attachment use a one-element list. Use empty list if no attachments.")
+
+    @field_validator("attachment", mode="before")
+    @classmethod
+    def coerce_to_list(cls, v):
+        if v is None:
+            return []
+        if isinstance(v, str):
+            return [v]
+        return v
 
 class CommandOutput(BaseModel):
     intent: Literal["command", "chat", "email"] = Field(..., description="Whether the user request is to execute a command, send an email or just a casual chat")

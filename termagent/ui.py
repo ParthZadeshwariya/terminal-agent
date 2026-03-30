@@ -1,5 +1,9 @@
 import time
 
+from termagent.agent.graph import app as agent_app
+import termagent.agent.nodes as nodes
+import threading
+
 from textual.app import App, ComposeResult
 from textual.widgets import Input, RichLog, Static, Footer
 from textual.containers import Vertical, Horizontal
@@ -201,28 +205,6 @@ class TermAgent(App):
     # ── Input handling ───────────────────────────────────────────────────────
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        # Confirmation flow takes priority
-        if self._confirmation_handler:
-            self._confirmation_handler(event)
-            return
-
-        user_input = event.value.strip()
-        if not user_input:
-            return
-
-        input_widget = self.query_one("#user-input", Input)
-        input_widget.clear()
-
-        if user_input.lower() == "bye":
-            self.exit()
-            return
-
-        log = self.query_one("#output-log", RichLog)
-        log.write(Text.from_markup(f"\n[bold cyan]❯[/bold cyan] [white]{user_input}[/white]"))
-        self._start_spinner()
-        self.process_input(user_input)
-
-    def on_input_submitted(self, event: Input.Submitted) -> None:
         if self._confirmation_handler:
             self._confirmation_handler(event)
             return
@@ -240,7 +222,7 @@ class TermAgent(App):
 
         log = self.query_one("#output-log", RichLog)
 
-        # ── NEW: raw command mode ──────────────────────────────
+        # ── raw command mode ──────────────────────────────
         if user_input.startswith("!"):
             raw_cmd = user_input[1:].strip()
             if raw_cmd:
@@ -291,10 +273,6 @@ class TermAgent(App):
     
     @work(thread=True)
     def process_input(self, user_input: str) -> None:
-        from termagent.agent.graph import app as agent_app
-        import termagent.agent.nodes as nodes
-        import threading
-
         outer_self = self
 
         def patched_confirm(state):
@@ -335,33 +313,33 @@ class TermAgent(App):
     def _ask_confirmation(self, cmd: str, result_holder: dict, event) -> None:
         # Stop spinner while waiting for user
         self._stop_spinner()
-        self._set_status("[bold yellow] Risky command — type yes or no[/bold yellow]")
+        self._set_status("[bold yellow] Risky command — type y or n[/bold yellow]")
 
         log = self.query_one("#output-log", RichLog)
         log.write(Text.from_markup(
             f"\n[bold yellow]  Risky command detected:[/bold yellow]\n"
             f"  [bold white]{escape(cmd)}[/bold white]\n"
-            f"[dim yellow]  Type [bold]yes[/bold] to confirm or [bold]no[/bold] to cancel[/dim yellow]"
+            f"[dim yellow]  Type [bold]y[/bold] to confirm or [bold]n[/bold] to cancel[/dim yellow]"
         ))
 
         input_widget = self.query_one("#user-input", Input)
-        input_widget.placeholder = "yes / no"
+        input_widget.placeholder = "y / n"
 
         def on_confirm(submit_event: Input.Submitted):
             answer = submit_event.value.strip().lower()
-            if answer in ["yes", "no"]:
+            if answer in ["y", "n"]:
                 input_widget.clear()
                 input_widget.placeholder = "Ask me anything or describe what to do..."
                 result_holder["answer"] = answer
                 log.write(Text.from_markup(
-                    f"[dim]  → {'[green]Confirmed[/green]' if answer == 'yes' else '[red]Cancelled[/red]'}[/dim]"
+                    f"[dim]  → {'[green]Confirmed[/green]' if answer == 'y' else '[red]Cancelled[/red]'}[/dim]"
                 ))
                 # Restart spinner while agent continues
                 self._start_spinner()
                 self._confirmation_handler = None
                 event.set()
             else:
-                log.write(Text.from_markup("[dim yellow]  Please type yes or no[/dim yellow]"))
+                log.write(Text.from_markup("[dim yellow]  Please type y or n[/dim yellow]"))
 
         self._confirmation_handler = on_confirm
 
@@ -377,7 +355,7 @@ class TermAgent(App):
                 "  [dim]Please set [bold cyan]EMAIL_ADDRESS[/bold cyan] and [bold cyan]EMAIL_PASSWORD[/bold cyan] in your [bold].env[/bold] file.\n"
                 "  Gmail users: generate an App Password at [bold cyan]myaccount.google.com/apppasswords[/bold cyan][/dim]\n"
                 "  [dim]--------------------------OR--------------------------[/dim]\n"
-                "  [dim]Restart TERMAGENT and choose yes to enter credentials interactively.[/dim]"
+                "  [dim]Restart TERMAGENT and choose y to enter credentials interactively.[/dim]"
             ))
             self._set_status("[bold yellow] Email setup required[/bold yellow]")
             self.cwd = new_cwd
@@ -389,7 +367,7 @@ class TermAgent(App):
         else:
             if output.startswith("Error:"):
                 self._set_status("[bold red]✗ Error[/bold red]")
-                log.write(Text.from_markup(f"[bold red]  ✗[/bold red] [red]{escape(output)}[/red]"))
+                log.write(Text.from_markup(f"[bold red]  ✗[/bold red] [red]{esocape(output)}[/red]"))
             elif output == "Command cancelled by user.":
                 self._set_status("[dim]✗ Cancelled[/dim]")
             else:
@@ -415,8 +393,8 @@ def main():
         print("Groq API key not found.")
         groq_key = input("Enter your Groq API key: ").strip()
 
-        save = input("Save to .env for future use? (yes/no): ")
-        if save.lower() == "yes":
+        save = input("Save to .env for future use? (y/n): ")
+        if save.lower() == "y":
             with open(".env", "a") as f:
                 f.write(f"\nGROQ_API_KEY={groq_key}")
             print("Saved!")
@@ -429,8 +407,8 @@ def main():
     if email_user and email_pass:
         print("Email features enabled.")
     else:
-        email_enabled = input("Enable email features? (yes/no): ").strip().lower()
-        if email_enabled == "yes":
+        email_enabled = input("Enable email features? (y/n): ").strip().lower()
+        if email_enabled == "y":
             print("Email credentials not found.")
             print("Email credentials will only be used when sending an email.")
             print("""
@@ -441,8 +419,8 @@ def main():
             email_user = input("Enter your email address: ").strip()
             email_pass = input("Enter your email password/app password: ").strip()
 
-            save = input("Save to .env for future use? (yes/no): ")
-            if save.lower() == "yes":
+            save = input("Save to .env for future use? (y/n): ")
+            if save.lower() == "y":
                 with open(".env", "a") as f:
                     f.write(f"\nEMAIL_ADDRESS={email_user}")
                     f.write(f"\nEMAIL_PASSWORD={email_pass}")

@@ -8,8 +8,9 @@ include = ["termagent*"]
 
 [project]
 name = "termagent-cli"
-version = "0.2.0"
+version = "0.3.0"
 description = "Natural language terminal agent for Windows PowerShell"
+readme = "package_info.md"
 requires-python = ">=3.10"
 dependencies = [
     "langchain-groq",
