@@ -2,6 +2,7 @@ import time
 
 from termagent.agent.graph import app as agent_app
 import termagent.agent.nodes as nodes
+from langchain_core.messages import HumanMessage, AIMessage
 import threading
 
 from textual.app import App, ComposeResult
@@ -157,6 +158,7 @@ class TermAgent(App):
         self._confirmation_handler = None
         self._spinner_timer: Timer | None = None
         self._spinner_frame = 0
+        self._messages = []
         self.update_cwd_label()
         log = self.query_one("#output-log", RichLog)
         log.write(Text.from_markup(
@@ -291,12 +293,37 @@ class TermAgent(App):
 
         try:
             email_enabled = bool(os.getenv("EMAIL_ADDRESS") and os.getenv("EMAIL_PASSWORD"))
-            state = {"text": user_input, "cwd": self.cwd, "user_name": os.getenv("EMAIL_USERNAME"), "email_enabled": email_enabled}
+            state = {
+                # transient — always fresh
+                "text": user_input,
+                "cwd": self.cwd,
+                "cmd": "",
+                # persistent — carried across turns
+                "messages": self._messages,
+                "user_name": os.getenv("EMAIL_USERNAME"),
+                "email_enabled": email_enabled,
+            }            
             result = agent_app.invoke(state)
 
             new_cwd = result.get("cwd", self.cwd)
-            output = result.get("result", "Command cancelled.")
+            output = result.get("result", "")
             intent = result.get("intent", "command")
+
+            # Clean one-liner summaries for history
+            if intent == "email":
+                recipient = (result.get("email") or {}).get("recipient", "recipient")
+                ai_summary = f"Sent email to {recipient} successfully."
+            elif intent == "command":
+                cmd = result.get("cmd", "")
+                ai_summary = f"Executed: `{cmd}`. Output: {output[:120]}"
+            else:
+                ai_summary = output  # chat — keep full response
+
+            from langchain_core.messages import HumanMessage, AIMessage
+            self._messages = self._messages + [
+                HumanMessage(content=user_input),
+                AIMessage(content=ai_summary)
+            ]
 
             self.call_from_thread(self._update_output, output, intent, new_cwd)
         except Exception as e:

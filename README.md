@@ -37,6 +37,7 @@ Most developers waste time Googling half-remembered commands. Non-technical user
 - 🪟 **Windows-native** — built for PowerShell, not an afterthought port
 - 🛡️ **Safety-first** — two-layer risk detection before anything runs
 - 🧠 **Actually understands context** — knows your current directory, chains multi-step operations
+- 📝 **Session Memory** — Remembers conversation history throughout your session
 
 <br/>
 
@@ -100,11 +101,14 @@ Navigate freely — the agent always knows where you are.
   ✓ Done  ← created inside project/, not the root
 ```
 
-<br/>
+### 🧠 Session Memory
+Termagent retains the conversation history throughout a session. You can naturally refer to previous commands and context without repeating yourself.
+
+<br>
 
 ## 📐 Agent Architecture
 
-Termagent is built on **[LangGraph](https://github.com/langchain-ai/langgraph)** — a stateful agent framework. The pipeline is a directed graph:
+Termagent is built on **[LangGraph](https://github.com/langchain-ai/langgraph)**. The stateful pipeline uses a clean, streamlined directed graph architecture to manage tool selection and execution safety:
 
 ![demo-image](assets/graph.png)
 
@@ -157,7 +161,7 @@ python -m termagent
 termagent/
 ├── agent/
 │   ├── graph.py     # LangGraph state machine workflow
-│   ├── nodes.py     # LLM API calls, safety checks, execution logic
+│   ├── nodes.py     # LLM API calls, safety checks, excution logic
 │   └── state.py     # AgentState TypedDict definition
 └── ui.py            # Textual TUI layout + CLI entry point
 ```

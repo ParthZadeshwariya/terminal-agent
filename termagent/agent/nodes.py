@@ -22,7 +22,20 @@ load_dotenv()
 
 _confirm_fn = None  # Pluggable callback for UI to override confirm_command
 
-# OLLAMA_MODEL = ""
+AGENT_PERSONA = SystemMessage(content=f"""
+    You are Termagent, a Windows terminal assistant.
+    
+    RULES:
+    - Be concise and direct. No fluff.
+    - Address the user by name if known.
+    - For greetings or small talk, respond briefly and naturally.
+    - Never invent system data, file contents, email counts, or any information
+      you were not explicitly given. If you don't know something, say so.
+    - Never fabricate actions that aren't in history.
+
+    IMPORTANT NOTE:
+    - When history shows an action was completed, you may reference it accurately.
+""")
 
 BLACKLIST = [
         # System Critical Paths
@@ -78,12 +91,47 @@ class EmailOutput(BaseModel):
         return v
 
 class CommandOutput(BaseModel):
-    intent: Literal["command", "chat", "email"] = Field(..., description="Whether the user request is to execute a command, send an email or just a casual chat")
-    cmd: str = Field("", description="The PowerShell command to execute, if intent is 'command'")
-    response: str = Field("", description="The response to return to the user, if intent is 'chat'")
+    cmd: str = Field(..., description="The PowerShell command to execute")
+
+class IntentOutput(BaseModel):
+    intent: Literal["command", "chat", "email"] = Field(..., description="The user's intent")
+
+def classify_intent(state: AgentState) -> AgentState:
+    messages = [
+        SystemMessage(content="""
+            Classify the user's intent into exactly one category:
+            - "command": wants to perform a file/system operation RIGHT NOW
+            - "email": wants to SEND a new email RIGHT NOW
+            - "chat": question, conversation, follow-up, or anything else
+
+            CRITICAL RULES:
+            - If the user is asking WHETHER something was done, that is "chat"
+            - If the user is asking ABOUT a past action, that is "chat"
+            - Only classify as "email" if the user is explicitly requesting
+              a NEW email to be sent, e.g. "send", "write", "compose", "draft"
+            - Questions like "did you...", "have you...", "was the email sent..."
+              are ALWAYS "chat"
+
+            EXAMPLES:
+            "send an email to john@example.com" → email
+            "did you send the email to john?" → chat
+            "was the email sent?" → chat
+            "have you mailed him?" → chat
+            "email him again" → email
+            "list files in this folder" → command
+            "did you delete that file?" → chat
+        """),
+        *state.get("messages", [])[-3:],
+        HumanMessage(content=state["text"])
+    ]
+    llm = ChatGroq(model="llama-3.3-70b-versatile")
+    model = llm.with_structured_output(IntentOutput)
+    response = model.invoke(messages)
+    return {"intent": response.intent}
 
 def generate_email(state: AgentState) -> AgentState:
     messages = [
+        AGENT_PERSONA,
         SystemMessage(content="""
             You are an expert email composer. Generate a professional email based on the user's request.
 
@@ -103,62 +151,52 @@ def generate_email(state: AgentState) -> AgentState:
         "email": response.model_dump() if response else None
     }
 
-def generate_command(state: AgentState) -> str:
-
+def generate_command(state: AgentState) -> AgentState:
     messages = [
-    SystemMessage(content="""
-        You are Termagent, a Windows PowerShell assistant that can either generate commands or answer questions.
+        SystemMessage(content="""
+            Generate a PowerShell command for the user's request.
+            
+            RULES:
+            - Use simple built-in PowerShell cmdlets only
+            - Never use Add-Type, .NET assemblies, cmd.exe style commands
+            - No explanations, no markdown, no backticks
+            
+            PREFERRED CMDLETS:
+            - Files/Folders: New-Item, Remove-Item, Copy-Item, Move-Item, Rename-Item, Get-ChildItem
+            - Read/Write: Set-Content, Get-Content, Add-Content
+            - Info: Get-Location, Get-Process, Get-Service, ipconfig, whoami
+            
+            EXAMPLES:
+            User: write "hello world" to notes.txt
+            cmd: Set-Content -Path "notes.txt" -Value "hello world"
 
-        First, classify the user's intent:
-        - "command": user wants to perform a system operation
-        - "chat": user is asking a question or having a conversation
-        - "email": user wants to send an email
-
-        RULES FOR COMMANDS:
-        - Use simple built-in PowerShell cmdlets only
-        - Never use Add-Type, .NET assemblies, cmd.exe style commands
-        - No explanations, no markdown, no backticks
-        - If the intent is "chat", return an empty string for cmd and provide the answer in response
-        - If the intent is "command", provide the PowerShell command in cmd and leave response empty
-        
-        PREFERRED CMDLETS:
-        - Files/Folders: New-Item, Remove-Item, Copy-Item, Move-Item, Rename-Item, Get-ChildItem
-        - Read/Write: Set-Content, Get-Content, Add-Content
-        - Info: Get-Location, Get-Process, Get-Service, ipconfig, whoami
-        
-        EXAMPLES:
-        User: write "hello world" to notes.txt
-        intent: command
-        cmd: Set-Content -Path "notes.txt" -Value "hello world"
-        response: ""
-
-        User: what are AI agents?
-        intent: chat
-        cmd: ""
-        response: AI agents are autonomous systems that perceive their environment and take actions to achieve goals.
-   
-        User: create a file called "readme.txt" and write "hello world" in it 
-        intent: command  
-        cmd: New-Item -ItemType File -Name "readme.txt" -Force; Set-Content -Path "readme.txt" -Value "hello world"
-        response: ""
+            User: create a file called "readme.txt" and write "hello world" in it
+            cmd: New-Item -ItemType File -Name "readme.txt" -Force; Set-Content -Path "readme.txt" -Value "hello world"
         """),
-    HumanMessage(content=f"Current working directory: {state['cwd']}\nUser's name: {state.get('user_name', 'User')}\nUser request: {state['text']}")
+        HumanMessage(content=f"CWD: {state['cwd']}\nRequest: {state['text']}")
     ]
     llm = ChatGroq(model="llama-3.3-70b-versatile")
-    # llm = ChatOllama(model=OLLAMA_MODEL)
     model = llm.with_structured_output(CommandOutput)
-
     response = model.invoke(messages)
-
-    print(f"DEBUG response: {response}")
-    return {
-        "cmd": response.cmd,
-        "intent": response.intent,
-        "response": response.response
-    }
-
+    return {"cmd": response.cmd}
+    
 def chat_node(state: AgentState) -> AgentState:
-    return {"result": state["response"]}
+    user_name = state.get('user_name', '')
+    
+    persona = AGENT_PERSONA
+    if user_name:
+        persona = SystemMessage(content=
+            AGENT_PERSONA.content + f"\n\nThe user's name is {user_name}. Use it only for greetings, never in every reply."
+        )
+    
+    messages = [
+        persona,
+        *state.get("messages", [])[-10:],   
+        HumanMessage(content=f"User request: {state['text']}")
+    ]
+    llm = ChatGroq(model="llama-3.3-70b-versatile")
+    response = llm.invoke(messages)
+    return {"result": response.content}
 
 
 def check_command(state: AgentState) -> AgentState:

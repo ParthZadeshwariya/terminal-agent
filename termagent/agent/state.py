@@ -1,6 +1,8 @@
 from typing import TypedDict, Literal, Optional
+from langchain_core.messages import BaseMessage
 
 class AgentState(TypedDict):
+    messages: list[BaseMessage]
     text: str
     cwd: str
     cmd: str
