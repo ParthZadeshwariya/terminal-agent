@@ -1,5 +1,5 @@
 from langgraph.graph import START, END, StateGraph
-from .nodes import classify_intent, generate_command, check_command, confirm_command, execute_command, chat_node, email_node, pre_check, generate_email
+from .nodes import classify_intent, generate_command, check_command, confirm_command, execute_command, chat_node, email_node, pre_check, generate_email, doc_node
 from .state import AgentState 
 
 def if_risky(state: AgentState) -> str:
@@ -21,9 +21,11 @@ def route_pre_check(state: AgentState) -> str:
 
 def route_intent(state: AgentState) -> str:
     if state["intent"] == "command":
-        return "command_check_needed"
+        return "command"
     elif state["intent"] == "email":
-        return "compose_email"
+        return "generate_email"
+    elif state["intent"] == "document":
+        return "create_document"       
     else:
         return "chat"
 
@@ -31,6 +33,7 @@ graph = StateGraph(AgentState)
 
 graph.add_node("pre_check", pre_check)
 graph.add_node("classify_intent", classify_intent)    
+graph.add_node("doc_node", doc_node)
 graph.add_node("generate_command", generate_command)
 graph.add_node("generate_email", generate_email)
 graph.add_node("chat_node", chat_node)
@@ -54,9 +57,10 @@ graph.add_conditional_edges(
     "classify_intent",
     route_intent,
     {
-        "command_check_needed": "generate_command",   
+        "command": "generate_command",   
         "chat": "chat_node",
-        "compose_email": "generate_email"
+        "compose_email": "generate_email",
+        "create_document": "doc_node"
     }
 )
 
@@ -64,6 +68,7 @@ graph.add_edge("generate_command", "check_command")
 graph.add_edge("chat_node", END)
 graph.add_edge("generate_email", "email_node")
 graph.add_edge("email_node", END)
+graph.add_edge("doc_node", END)
 
 graph.add_conditional_edges(
     "check_command",

@@ -1,9 +1,12 @@
-# from langchain_ollama import ChatOllama
 from langchain_groq import ChatGroq
 
 from .state import AgentState
+from .tools import web_search, read_file, write_document, _markdown_to_docx
 from pydantic import BaseModel, Field, field_validator
 from typing import Literal, Optional
+from langchain_core.tools import tool
+from langchain_core.messages.tool import ToolMessage
+from ddgs import DDGS
 
 from langchain_core.messages.human import HumanMessage
 from langchain_core.messages.system import SystemMessage
@@ -94,7 +97,7 @@ class CommandOutput(BaseModel):
     cmd: str = Field(..., description="The PowerShell command to execute")
 
 class IntentOutput(BaseModel):
-    intent: Literal["command", "chat", "email"] = Field(..., description="The user's intent")
+    intent: Literal["command", "chat", "email", "document"] = Field(..., description="The user's intent")
 
 def classify_intent(state: AgentState) -> AgentState:
     messages = [
@@ -103,6 +106,12 @@ def classify_intent(state: AgentState) -> AgentState:
             - "command": wants to perform a file/system operation RIGHT NOW
             - "email": wants to SEND a new email RIGHT NOW
             - "chat": question, conversation, follow-up, or anything else
+            - "document": wants to create a document, or a report 
+
+            RULE: If the request involves modifying, editing, or updating 
+            the CONTENTS of a .docx, .pdf, or .txt file → always "document"
+            Only use "command" for system/file operations like 
+            creating folders, moving files, running processes.
 
             CRITICAL RULES:
             - If the user is asking WHETHER something was done, that is "chat"
@@ -124,7 +133,7 @@ def classify_intent(state: AgentState) -> AgentState:
         *state.get("messages", [])[-3:],
         HumanMessage(content=state["text"])
     ]
-    llm = ChatGroq(model="llama-3.3-70b-versatile")
+    llm = ChatGroq(model="openai/gpt-oss-120b")
     model = llm.with_structured_output(IntentOutput)
     response = model.invoke(messages)
     return {"intent": response.intent}
@@ -144,7 +153,7 @@ def generate_email(state: AgentState) -> AgentState:
         """),
         HumanMessage(content=f"User's name: {state.get('user_name', 'User')}\nUser request: {state['text']}")
     ]
-    llm = ChatGroq(model="llama-3.3-70b-versatile")
+    llm = ChatGroq(model="openai/gpt-oss-120b")
     model = llm.with_structured_output(EmailOutput)
     response = model.invoke(messages)
     return {
@@ -175,13 +184,22 @@ def generate_command(state: AgentState) -> AgentState:
         """),
         HumanMessage(content=f"CWD: {state['cwd']}\nRequest: {state['text']}")
     ]
-    llm = ChatGroq(model="llama-3.3-70b-versatile")
+    llm = ChatGroq(model="openai/gpt-oss-120b")
     model = llm.with_structured_output(CommandOutput)
     response = model.invoke(messages)
     return {"cmd": response.cmd}
-    
+
 def chat_node(state: AgentState) -> AgentState:
+    cwd = state["cwd"]
     user_name = state.get('user_name', '')
+    
+    @tool
+    def read_file_local(filepath: str) -> str:
+        """Read and return contents of a .docx, .pdf, or .txt file.
+        Use when the user asks about or references a specific file."""
+        if not os.path.isabs(filepath):
+            filepath = os.path.join(cwd, filepath)
+        return read_file(filepath)
     
     persona = AGENT_PERSONA
     if user_name:
@@ -191,13 +209,83 @@ def chat_node(state: AgentState) -> AgentState:
     
     messages = [
         persona,
-        *state.get("messages", [])[-10:],   
+        *state.get("messages", [])[-7:],   
         HumanMessage(content=f"User request: {state['text']}")
     ]
-    llm = ChatGroq(model="llama-3.3-70b-versatile")
-    response = llm.invoke(messages)
+    llm = ChatGroq(model="openai/gpt-oss-120b")
+    llm_with_tools = llm.bind_tools([web_search, read_file_local])
+    response = llm_with_tools.invoke(messages)
+
+    # ReAct loop: if LLM decides to search, execute and feed results back
+    while response.tool_calls:
+        messages.append(response)
+        for tc in response.tool_calls:
+            result = web_search.invoke(tc["args"])
+            messages.append(ToolMessage(content=result, tool_call_id=tc["id"]))
+        response = llm_with_tools.invoke(messages)
+
     return {"result": response.content}
 
+def doc_node(state: AgentState) -> AgentState:
+    cwd = state["cwd"]
+
+    @tool
+    def write_document(filename: str, markdown_content: str) -> str:
+        """Write a well-formatted .docx file from markdown content.
+        filename should end in .docx."""
+        if not filename.endswith(".docx"):
+            filename += ".docx"
+        output_path = os.path.join(cwd, filename)   
+        _markdown_to_docx(markdown_content, output_path)
+        return f"Document saved: {output_path}"
+
+    @tool
+    def read_file_local(filepath: str) -> str:
+        """Read a .docx, .pdf, or .txt file. 
+        If only a filename is given, reads from current directory."""
+        if not os.path.isabs(filepath):
+            filepath = os.path.join(cwd, filepath)  
+        return read_file(filepath)  
+
+    tools = [web_search, write_document, read_file_local]
+    llm = ChatGroq(model="openai/gpt-oss-120b")
+    llm_with_tools = llm.bind_tools(tools)
+    
+    messages = [
+        AGENT_PERSONA,
+        SystemMessage(content="""
+            Your task is to write comprehensive, well-structured reports.
+
+            PROCESS:
+            1. Use web_search to gather current information — try 2-3 different queries
+            2. Combine search results WITH your own knowledge to write the report
+            3. Use write_document to save the .docx file
+            4. Always write the document — even if search returns limited results,
+            use your parametric knowledge to fill gaps
+
+            DOCUMENT QUALITY:
+            - Use # for title, ## for sections, ### for subsections
+            - Include bullet points for lists
+            - Be comprehensive — aim for 500-1000 words minimum
+            - Never refuse to write — always produce a document
+
+            ADD YOUR SIGNATURE AT THE BOTTOM
+        """),
+        HumanMessage(content=f"CWD: {state['cwd']}\nRequest: {state['text']}")
+    ]
+    
+    # ReAct loop is justified here — multiple steps needed
+    for _ in range(5):  # max iterations cap
+        response = llm_with_tools.invoke(messages)
+        if not response.tool_calls:
+            break
+        messages.append(response)
+        for tc in response.tool_calls:
+            tool_map = {t.name: t for t in tools}
+            result = tool_map[tc["name"]].invoke(tc["args"])
+            messages.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
+    
+    return {"result": response.content}
 
 def check_command(state: AgentState) -> AgentState:
     cmd = state['cmd']

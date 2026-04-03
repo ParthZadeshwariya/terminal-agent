@@ -13,6 +13,7 @@ from textual import work
 from textual.timer import Timer
 from rich.text import Text
 from rich.markup import escape
+from rich.markdown import Markdown
 import os
 
 ASCII_LOGO = """
@@ -138,7 +139,7 @@ class TermAgent(App):
 
         with Horizontal(id="status-bar"):
             yield Static(id="cwd-label")
-            yield Static("⬡  llama-3.3-70b-versatile  •  Groq Inference", id="model-label")
+            yield Static("⬡  openai/gpt-oss-120b  •  Groq Inference", id="model-label")
 
         yield RichLog(id="output-log", highlight=True, markup=True, wrap=True)
 
@@ -316,6 +317,8 @@ class TermAgent(App):
             elif intent == "command":
                 cmd = result.get("cmd", "")
                 ai_summary = f"Executed: `{cmd}`. Output: {output[:120]}"
+            elif intent == "document":                             
+                ai_summary = f"Created document: {output}"
             else:
                 ai_summary = output  # chat — keep full response
 
@@ -390,7 +393,12 @@ class TermAgent(App):
 
         if intent == "chat":
             self._set_status("[dim cyan]◌ responded[/dim cyan]")
-            log.write(Text.from_markup(f"  [white]{escape(output)}[/white]"))
+            # log.write(Text.from_markup(f"  [white]{escape(output)}[/white]"))
+            log.write(Markdown(output))
+        elif intent == "document":                         
+            self._set_status("[bold green]✓ Done[/bold green]")
+            # log.write(Text.from_markup(f"  [bold green]✓[/bold green] [white]{escape(output)}[/white]"))
+            (Markdown(output))
         else:
             if output.startswith("Error:"):
                 self._set_status("[bold red]✗ Error[/bold red]")

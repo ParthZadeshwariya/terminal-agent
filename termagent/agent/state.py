@@ -2,8 +2,8 @@ from typing import TypedDict, Literal, Optional
 from langchain_core.messages import BaseMessage
 
 class AgentState(TypedDict):
-    messages: list[BaseMessage]
     text: str
+    messages: list[BaseMessage]
     cwd: str
     cmd: str
     is_risky: bool

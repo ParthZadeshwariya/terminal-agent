@@ -22,6 +22,7 @@ dependencies = [
     "ollama",
     "textual",
     "rich",
+    "ddgs",
 ]
 
 [project.scripts]
