@@ -399,6 +399,9 @@ class TermAgent(App):
             self._set_status("[bold green]✓ Done[/bold green]")
             # log.write(Text.from_markup(f"  [bold green]✓[/bold green] [white]{escape(output)}[/white]"))
             (Markdown(output))
+        elif intent == "github":
+            self._set_status("[bold green]✓ Done[/bold green]")
+            log.write(Markdown(output))
         else:
             if output.startswith("Error:"):
                 self._set_status("[bold red]✗ Error[/bold red]")
@@ -466,6 +469,21 @@ def main():
             os.environ["EMAIL_USERNAME"] = email_user_name
         else:
             print("Email features disabled. Set EMAIL_ADDRESS and EMAIL_PASSWORD in .env to enable later.")
+
+    github_token = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
+    if not github_token:
+        enable = input("Enable GitHub features? (y/n): ").strip().lower()
+        if enable == "y":
+            print("Get a token at: github.com/settings/tokens")
+            print("Scopes needed: repo, read:user")
+            github_token = input("Enter your GitHub Personal Access Token: ").strip()
+            save = input("Save to .env? (y/n): ")
+            if save.lower() == "y":
+                with open(".env", "a") as f:
+                    f.write(f"\nGITHUB_PERSONAL_ACCESS_TOKEN={github_token}")
+            os.environ["GITHUB_PERSONAL_ACCESS_TOKEN"] = github_token
+        else:
+            print("GitHub features disabled.")
 
     print("Starting TERMAGENT...")
     app = TermAgent()

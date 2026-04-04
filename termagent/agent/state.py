@@ -8,7 +8,7 @@ class AgentState(TypedDict):
     cmd: str
     is_risky: bool
     confirmation: Optional[Literal["yes", "no"]]
-    intent: Optional[Literal["command", "chat", "email"]]
+    intent: Optional[Literal["command", "chat", "email", "github"]]
     response: Optional[str]
     result: Optional[str]
     email: Optional[dict]

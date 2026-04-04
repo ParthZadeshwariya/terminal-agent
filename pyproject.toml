@@ -8,7 +8,7 @@ include = ["termagent*"]
 
 [project]
 name = "termagent-cli"
-version = "0.5.0"
+version = "1.0.0"
 description = "Natural language terminal agent for Windows PowerShell"
 readme = "package_info.md"
 requires-python = ">=3.10"
@@ -23,6 +23,7 @@ dependencies = [
     "textual",
     "rich",
     "ddgs",
+    "mcp"
 ]
 
 [project.scripts]

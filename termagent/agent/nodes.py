@@ -19,7 +19,13 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
-
+from .mcp_client import (
+    get_mcp_langchain_tools,
+    get_git_diff, 
+    get_git_remote_info, 
+    run_git_commands, 
+)
+import re
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -97,16 +103,17 @@ class CommandOutput(BaseModel):
     cmd: str = Field(..., description="The PowerShell command to execute")
 
 class IntentOutput(BaseModel):
-    intent: Literal["command", "chat", "email", "document"] = Field(..., description="The user's intent")
+    intent: Literal["command", "chat", "email", "document", "github"] = Field(..., description="The user's intent")
 
 def classify_intent(state: AgentState) -> AgentState:
     messages = [
         SystemMessage(content="""
             Classify the user's intent into exactly one category:
-            - "command": wants to perform a file/system operation RIGHT NOW
+            - "command": wants to perform a local file/system operation RIGHT NOW
             - "email": wants to SEND a new email RIGHT NOW
             - "chat": question, conversation, follow-up, or anything else
             - "document": wants to create a document, or a report 
+            - "github": ANY git or GitHub related operation — commits, push, pull requests, issues, releases, branches, diffs, repo info, or shipping code
 
             RULE: If the request involves modifying, editing, or updating 
             the CONTENTS of a .docx, .pdf, or .txt file → always "document"
@@ -116,24 +123,39 @@ def classify_intent(state: AgentState) -> AgentState:
             CRITICAL RULES:
             - If the user is asking WHETHER something was done, that is "chat"
             - If the user is asking ABOUT a past action, that is "chat"
-            - Only classify as "email" if the user is explicitly requesting
-              a NEW email to be sent, e.g. "send", "write", "compose", "draft"
-            - Questions like "did you...", "have you...", "was the email sent..."
-              are ALWAYS "chat"
+            - Only classify as "email" if the user is explicitly requesting a NEW email to be sent, e.g. "send", "write", "compose", "draft"
+            - Questions like "did you...", "have you...", "was the email sent..." are ALWAYS "chat"
+            - ANYTHING related to git, GitHub, commits, branches, PRs, issues, releases, diffs, repos → always "github"
+            - "ship it", "push this", "release this", "deploy this", "commit and push" → always "github"
+            - "show commits", "list PRs", "open issues", "show branches" → always "github"
+            - "create an issue", "make a pull request", "fork this repo" → always "github"
+            - Only use "command" for local file/system ops like creating folders, moving files, running processes
 
             EXAMPLES:
             "send an email to john@example.com" → email
             "did you send the email to john?" → chat
             "was the email sent?" → chat
-            "have you mailed him?" → chat
             "email him again" → email
             "list files in this folder" → command
+            "create a folder called src" → command
             "did you delete that file?" → chat
+            "ship it" → github
+            "push this to github" → github
+            "release v2" → github
+            "commit and push my changes" → github
+            "show all commits" → github
+            "list open pull requests" → github
+            "create an issue titled bug fix" → github
+            "show me the branches" → github
+            "what changed since last commit" → github
+            "who contributed to this repo" → github
+            "star this repository" → github
+            "did you push the code?" → chat
         """),
         *state.get("messages", [])[-3:],
         HumanMessage(content=state["text"])
     ]
-    llm = ChatGroq(model="openai/gpt-oss-120b")
+    llm = ChatGroq(model="llama-3.3-70b-versatile")
     model = llm.with_structured_output(IntentOutput)
     response = model.invoke(messages)
     return {"intent": response.intent}
@@ -153,7 +175,7 @@ def generate_email(state: AgentState) -> AgentState:
         """),
         HumanMessage(content=f"User's name: {state.get('user_name', 'User')}\nUser request: {state['text']}")
     ]
-    llm = ChatGroq(model="openai/gpt-oss-120b")
+    llm = ChatGroq(model="llama-3.3-70b-versatile")
     model = llm.with_structured_output(EmailOutput)
     response = model.invoke(messages)
     return {
@@ -184,7 +206,7 @@ def generate_command(state: AgentState) -> AgentState:
         """),
         HumanMessage(content=f"CWD: {state['cwd']}\nRequest: {state['text']}")
     ]
-    llm = ChatGroq(model="openai/gpt-oss-120b")
+    llm = ChatGroq(model="llama-3.3-70b-versatile")
     model = llm.with_structured_output(CommandOutput)
     response = model.invoke(messages)
     return {"cmd": response.cmd}
@@ -416,3 +438,121 @@ def pre_check(state: AgentState) -> AgentState:
         return {"result": "EMAIL_SETUP_REQUIRED", "early_exit": True}
 
     return {"early_exit": False}
+
+
+def github_node(state: AgentState) -> AgentState:
+    """
+    Unified GitHub/git node.
+    Handles ALL git and GitHub operations via a ReAct loop:
+    - Read queries: show commits, list PRs, issues, branches, etc.
+    - Write operations: commit, push, release, create issues/PRs, etc.
+    - Ship-it flows: diff → commit → push → release (LLM orchestrates the steps)
+    """
+    cwd = state["cwd"]
+    user_request = state["text"]
+
+    # ── Detect repo context ───────────────────────────────────────────────────
+    owner, repo = get_git_remote_info(cwd)
+    repo_context = f"{owner}/{repo}" if owner and repo else "unknown (no GitHub remote detected)"
+
+    # ── Local git tools ───────────────────────────────────────────────────────
+    @tool
+    def git_status() -> str:
+        """Show the working tree status — staged, unstaged, and untracked files."""
+        ok, out = run_git_commands(["git status --short"], cwd)
+        return out if ok else f"Error: {out}"
+
+    @tool
+    def git_diff() -> str:
+        """Show the diff of all changes (staged + unstaged + untracked file list)."""
+        return get_git_diff(cwd)
+
+    @tool
+    def git_add(files: str = ".") -> str:
+        """Stage files for commit. Use '.' to stage everything."""
+        ok, out = run_git_commands([f"git add {files}"], cwd)
+        return out if ok else f"Error: {out}"
+
+    @tool
+    def git_commit(message: str) -> str:
+        """Commit staged changes with the given message. Use a concise imperative-mood summary."""
+        ok, out = run_git_commands([f'git commit -m "{message}"'], cwd)
+        return out if ok else f"Error: {out}"
+
+    @tool
+    def git_push() -> str:
+        """Push commits to the remote (origin). Automatically sets upstream if needed."""
+        ok, out = run_git_commands(["git push --set-upstream origin HEAD"], cwd)
+        return out if ok else f"Error: {out}"
+
+    @tool
+    def git_log(n: int = 10) -> str:
+        """Show recent commit history. Returns the last n commits."""
+        ok, out = run_git_commands([f"git log --oneline -n {n}"], cwd)
+        return out if ok else f"Error: {out}"
+
+    local_tools = [git_status, git_diff, git_add, git_commit, git_push, git_log]
+
+    # ── MCP GitHub tools ──────────────────────────────────────────────────────
+    mcp_tools = get_mcp_langchain_tools()
+
+    all_tools = local_tools + mcp_tools
+
+    # ── LLM with tools ────────────────────────────────────────────────────────
+    llm = ChatGroq(model="openai/gpt-oss-120b")
+    llm_with_tools = llm.bind_tools(all_tools)
+
+    messages = [
+        AGENT_PERSONA,
+        SystemMessage(content=f"""
+            You are the GitHub & Git specialist for Termagent.
+
+            CONTEXT:
+            - Repository: {repo_context}
+            - Owner: {owner or 'unknown'}
+            - Repo name: {repo or 'unknown'}
+            - Working directory: {cwd}
+
+            You have access to:
+            1. Local git tools: git_status, git_diff, git_add, git_commit, git_push, git_log
+            2. GitHub MCP tools: for API operations like listing commits, PRs, issues,
+               creating releases, searching repos, etc.
+
+            RULES:
+            - For queries ("show commits", "list PRs"): use the appropriate tool and
+              present results clearly.
+            - For "ship it" / deploy requests: follow this sequence:
+              1. git_diff to see what changed
+              2. git_add to stage files
+              3. git_commit with a good imperative-mood commit message based on the diff
+              4. git_push to push to remote
+              5. Use the MCP create_release tool if the user wants a release
+            - When using MCP tools that need owner/repo, use the values from CONTEXT above.
+            - Be concise and direct. Show results, don't narrate the process.
+            - If a tool call fails, report the error clearly.
+        """),
+        *state.get("messages", [])[-5:],
+        HumanMessage(content=user_request)
+    ]
+
+    # ── ReAct loop ────────────────────────────────────────────────────────────
+    tool_map = {t.name: t for t in all_tools}
+
+    for _ in range(8):
+        response = llm_with_tools.invoke(messages)
+        if not response.tool_calls:
+            break
+        messages.append(response)
+        for tc in response.tool_calls:
+            fn = tool_map.get(tc["name"])
+            if fn:
+                result = fn.invoke(tc["args"])
+            else:
+                result = f"Unknown tool: {tc['name']}"
+            messages.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
+
+    return {
+        "result": response.content,
+        "intent": "github",
+        "cwd": cwd
+    }
