@@ -128,6 +128,9 @@ class TermAgent(App):
     BINDINGS = [
         ("ctrl+c", "quit", "Quit"),
         ("ctrl+l", "clear", "Clear"),
+        ("ctrl+v", "paste_input", "Paste"),
+        ("ctrl+shift+c", "copy_output", "Copy Output"),
+        ("ctrl+m", "toggle_mic", "Mic"),
     ]
 
     cwd = reactive(os.getcwd())
@@ -376,6 +379,7 @@ class TermAgent(App):
     # ── Output rendering ──────────────────────────────────────────────────────
 
     def _update_output(self, output: str, intent: str, new_cwd: str) -> None:
+        self._last_output = output
         self._stop_spinner()
         log = self.query_one("#output-log", RichLog)
 
@@ -420,7 +424,62 @@ class TermAgent(App):
     def action_clear(self) -> None:
         self.query_one("#output-log", RichLog).clear()
         self._clear_status()
+    
+    # ── Paste support ─────────────────────────────────────────────────────────
+    def action_paste_input(self) -> None:
+        import subprocess
+        result = subprocess.run(
+            ["powershell", "-Command", "Get-Clipboard"],
+            capture_output=True, text=True
+        )
+        text = result.stdout.strip()
+        if text:
+            input_widget = self.query_one("#user-input", Input)
+            current = input_widget.value
+            input_widget.value = current + text
+            input_widget.cursor_position = len(input_widget.value)
 
+    def action_copy_output(self) -> None:
+        text = getattr(self, "_last_output", "")
+        if not text:
+            self._set_status("[dim]Nothing to copy[/dim]") 
+            return
+        import subprocess
+        subprocess.run(
+            ["powershell", "-Command", f"Set-Clipboard -Value @'\n{text}\n'@"],
+            capture_output=True, text=True
+        )
+        self._set_status("[bold green]✓ Copied to clipboard[/bold green]")
+
+    # ── Voice input ───────────────────────────────────────────────────────────
+    def action_toggle_mic(self) -> None:
+        if not getattr(self, "_mic_active", False):
+            self._mic_active = True
+            self._set_status("[bold red]● Recording... (Ctrl+M to stop)[/bold red]")
+            from termagent.audio import start_recording
+            start_recording()
+        else:
+            self._mic_active = False
+            self._set_status("[dim cyan]⠋ Transcribing...[/dim cyan]")
+            self._finish_recording()
+
+    @work(thread=True)
+    def _finish_recording(self) -> None:
+        from termagent.audio import stop_recording, transcribe
+        path = stop_recording()
+        text = transcribe(path)
+
+        def apply(t):
+            if t and not t.startswith("Transcription error"):
+                input_widget = self.query_one("#user-input", Input)
+                input_widget.value = t
+                input_widget.cursor_position = len(t)
+                self._set_status("[bold green]✓ Transcribed[/bold green]")
+            else:
+                self._set_status(f"[bold red]✗ {t}[/bold red]")
+
+        self.call_from_thread(apply, text)
+        
 def main():
     from dotenv import load_dotenv
     load_dotenv()
