@@ -3,7 +3,6 @@ from langchain_core.tools import tool
 from docx import Document
 from docx.shared import Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-import pypandoc
 import pdfplumber
 import os
 import re

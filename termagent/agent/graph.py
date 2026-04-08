@@ -2,7 +2,7 @@ from langgraph.graph import START, END, StateGraph
 from .nodes import (
     classify_intent, generate_command, check_command,
     confirm_command, execute_command, chat_node, email_node,
-    pre_check, generate_email, doc_node, github_node          
+    pre_check, generate_email, doc_node, github_node, coder_node      
 )
 from .state import AgentState 
 
@@ -31,7 +31,9 @@ def route_intent(state: AgentState) -> str:
     elif state["intent"] == "document":
         return "create_document"
     elif state["intent"] == "github":                         
-        return "github"                                       
+        return "github"         
+    elif state["intent"] == "code":
+        return "code"                              
     else:
         return "chat"
 
@@ -40,7 +42,8 @@ graph = StateGraph(AgentState)
 graph.add_node("pre_check", pre_check)
 graph.add_node("classify_intent", classify_intent)    
 graph.add_node("doc_node", doc_node)
-graph.add_node("github_node", github_node)                   
+graph.add_node("github_node", github_node)                
+graph.add_node("coder_node", coder_node)   
 graph.add_node("generate_command", generate_command)
 graph.add_node("generate_email", generate_email)
 graph.add_node("chat_node", chat_node)
@@ -68,7 +71,8 @@ graph.add_conditional_edges(
         "chat": "chat_node",
         "compose_email": "generate_email",
         "create_document": "doc_node",
-        "github": "github_node"                              
+        "github": "github_node",
+        "code": "coder_node"                              
     }
 )
 
@@ -77,7 +81,8 @@ graph.add_edge("chat_node", END)
 graph.add_edge("generate_email", "email_node")
 graph.add_edge("email_node", END)
 graph.add_edge("doc_node", END)
-graph.add_edge("github_node", END)                            
+graph.add_edge("github_node", END)       
+graph.add_edge("coder_node", END)                     
 
 graph.add_conditional_edges(
     "check_command",

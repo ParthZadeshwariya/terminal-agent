@@ -25,6 +25,7 @@ from .mcp_client import (
     get_git_remote_info, 
     run_git_commands, 
 )
+from .coder_graph import coder_app
 import re
 from dotenv import load_dotenv
 load_dotenv()
@@ -103,7 +104,7 @@ class CommandOutput(BaseModel):
     cmd: str = Field(..., description="The PowerShell command to execute")
 
 class IntentOutput(BaseModel):
-    intent: Literal["command", "chat", "email", "document", "github"] = Field(..., description="The user's intent")
+    intent: Literal["command", "chat", "email", "document", "github", "code"] = Field(..., description="The user's intent")
 
 def classify_intent(state: AgentState) -> AgentState:
     messages = [
@@ -144,12 +145,10 @@ def classify_intent(state: AgentState) -> AgentState:
             "release v2" → github
             "commit and push my changes" → github
             "show all commits" → github
-            "list open pull requests" → github
-            "create an issue titled bug fix" → github
             "show me the branches" → github
-            "what changed since last commit" → github
-            "who contributed to this repo" → github
-            "star this repository" → github
+            "write a python script that..." → code
+            "create a flask api with..." → code
+            "build a frontend for my api" → code
             "did you push the code?" → chat
         """),
         *state.get("messages", [])[-3:],
@@ -555,4 +554,22 @@ def github_node(state: AgentState) -> AgentState:
         "result": response.content,
         "intent": "github",
         "cwd": cwd
+    }
+
+def coder_node(state: AgentState) -> AgentState:
+    result = coder_app.invoke({
+        "task": state["text"],
+        "cwd": state["cwd"],
+        "plan": [],
+        "plan_approved": False,
+        "current_index": 0,
+        "context_files": {},
+        "completed": [],
+        "file_confirmed": False,
+        "messages": state.get("messages", []),
+        "result": ""
+    })
+    return {
+        "result": result.get("result", ""),
+        "intent": "code"
     }

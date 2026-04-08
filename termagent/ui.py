@@ -1,10 +1,10 @@
 import time
-
 from termagent.agent.graph import app as agent_app
 import termagent.agent.nodes as nodes
+import termagent.agent.coder_nodes as coder_nodes
 from langchain_core.messages import HumanMessage, AIMessage
 import threading
-
+import pathlib
 from textual.app import App, ComposeResult
 from textual.widgets import Input, RichLog, Static, Footer
 from textual.containers import Vertical, Horizontal
@@ -163,6 +163,7 @@ class TermAgent(App):
         self._spinner_timer: Timer | None = None
         self._spinner_frame = 0
         self._messages = []
+        self._ask_edit_confirmation = None
         self.update_cwd_label()
         log = self.query_one("#output-log", RichLog)
         log.write(Text.from_markup(
@@ -208,6 +209,69 @@ class TermAgent(App):
         status = self.query_one("#status-line", Static)
         status.update("")
 
+    def _ask_plan_confirmation(self, plan_text: str, result_holder: dict, event) -> None:
+        self._stop_spinner()
+        self._set_status("[bold yellow] Review plan — type y or n[/bold yellow]")
+
+        log = self.query_one("#output-log", RichLog)
+        log.write(Text.from_markup(
+            f"\n[bold cyan]  Proposed plan:[/bold cyan]\n"
+            f"[white]{escape(plan_text)}[/white]\n"
+            f"[dim yellow]  Type [bold]y[/bold] to proceed or [bold]n[/bold] to cancel[/dim yellow]"
+        ))
+
+        input_widget = self.query_one("#user-input", Input)
+        input_widget.placeholder = "y / n"
+
+        def on_confirm(submit_event: Input.Submitted):
+            answer = submit_event.value.strip().lower()
+            if answer in ["y", "n"]:
+                input_widget.clear()
+                input_widget.placeholder = "Ask me anything or describe what to do..."
+                result_holder["approved"] = (answer == "y")
+                log.write(Text.from_markup(
+                    f"[dim]  → {'[green]Plan approved[/green]' if answer == 'y' else '[red]Cancelled[/red]'}[/dim]"
+                ))
+                self._start_spinner()
+                self._confirmation_handler = None
+                event.set()
+            else:
+                log.write(Text.from_markup("[dim yellow]  Please type y or n[/dim yellow]"))
+
+        self._confirmation_handler = on_confirm
+
+        def _ask_edit_confirmation(self, edit_info: dict, result_holder: dict, event) -> None:
+            self._stop_spinner()
+            self._set_status("[bold yellow] Confirm file edit — type y or n[/bold yellow]")
+
+            log = self.query_one("#output-log", RichLog)
+            log.write(Text.from_markup(
+                f"\n[bold yellow]  About to edit:[/bold yellow] [white]{edit_info['file']}[/white]\n"
+                f"  [dim]Change: {escape(edit_info['description'])}[/dim]\n"
+                f"\n[dim cyan]  Current contents (preview):[/dim cyan]\n"
+                f"[dim]{escape(edit_info['preview'])}[/dim]\n"
+                f"\n[dim yellow]  Type [bold]y[/bold] to confirm or [bold]n[/bold] to skip this file[/dim yellow]"
+            ))
+
+            input_widget = self.query_one("#user-input", Input)
+            input_widget.placeholder = "y / n"
+
+            def on_confirm(submit_event: Input.Submitted):
+                answer = submit_event.value.strip().lower()
+                if answer in ["y", "n"]:
+                    input_widget.clear()
+                    input_widget.placeholder = "Ask me anything or describe what to do..."
+                    result_holder["confirmed"] = (answer == "y")
+                    log.write(Text.from_markup(
+                        f"[dim]  → {'[green]Editing[/green]' if answer == 'y' else '[yellow]Skipped[/yellow]'}[/dim]"
+                    ))
+                    self._start_spinner()
+                    self._confirmation_handler = None
+                    event.set()
+                else:
+                    log.write(Text.from_markup("[dim yellow]  Please type y or n[/dim yellow]"))
+
+        self._confirmation_handler = on_confirm
     # ── Input handling ───────────────────────────────────────────────────────
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -295,6 +359,32 @@ class TermAgent(App):
 
         nodes._confirm_fn = patched_confirm
 
+        def patched_confirm_plan(plan_text: str) -> bool:
+            result_holder = {}
+            confirmed_event = threading.Event()
+
+            def ask():
+                outer_self._ask_plan_confirmation(plan_text, result_holder, confirmed_event)
+
+            outer_self.call_from_thread(ask)
+            confirmed_event.wait()
+            return result_holder.get("approved", False)
+
+        coder_nodes._confirm_plan_fn = patched_confirm_plan
+
+        def patched_confirm_edit(edit_info: dict) -> bool:
+            result_holder = {}
+            confirmed_event = threading.Event()
+
+            def ask():
+                outer_self._ask_edit_confirmation(edit_info, result_holder, confirmed_event)
+
+            outer_self.call_from_thread(ask)
+            confirmed_event.wait()
+            return result_holder.get("confirmed", False)
+
+        coder_nodes._confirm_edit_fn = patched_confirm_edit
+
         try:
             email_enabled = bool(os.getenv("EMAIL_ADDRESS") and os.getenv("EMAIL_PASSWORD"))
             state = {
@@ -333,11 +423,17 @@ class TermAgent(App):
 
             self.call_from_thread(self._update_output, output, intent, new_cwd)
         except Exception as e:
-            self.call_from_thread(self._stop_spinner)
-            self.call_from_thread(
-                self._set_status,
-                f"[bold red]✗ Error: {escape(str(e))}[/bold red]"
-            )
+            err = str(e)
+            if "401" in err or "invalid_api_key" in err.lower() or "authentication" in err.lower():
+                self.call_from_thread(
+                    self._set_status,
+                    "[bold red]✗ API key invalid or expired — run 'termagent-reset' to update[/bold red]"
+                )
+            else:
+                self.call_from_thread(
+                    self._set_status,
+                    f"[bold red]✗ Error: {escape(err)}[/bold red]"
+                )
         finally:
             nodes._confirm_fn = None
 
@@ -404,6 +500,9 @@ class TermAgent(App):
             # log.write(Text.from_markup(f"  [bold green]✓[/bold green] [white]{escape(output)}[/white]"))
             (Markdown(output))
         elif intent == "github":
+            self._set_status("[bold green]✓ Done[/bold green]")
+            log.write(Markdown(output))
+        elif intent == "code":
             self._set_status("[bold green]✓ Done[/bold green]")
             log.write(Markdown(output))
         else:
@@ -479,10 +578,21 @@ class TermAgent(App):
                 self._set_status(f"[bold red]✗ {t}[/bold red]")
 
         self.call_from_thread(apply, text)
-        
-def main():
+
+ENV_PATH = pathlib.Path.home() / ".termagent" / ".env" 
+
+def _save_env(key: str, value: str):                     
+    ENV_PATH.parent.mkdir(parents=True, exist_ok=True)
+    lines = []
+    if ENV_PATH.exists():
+        lines = ENV_PATH.read_text().splitlines()
+    lines = [l for l in lines if not l.startswith(f"{key}=")]
+    lines.append(f"{key}={value}")
+    ENV_PATH.write_text("\n".join(lines))
+
+def main():        
     from dotenv import load_dotenv
-    load_dotenv()
+    load_dotenv(dotenv_path=ENV_PATH)
 
     groq_key = os.getenv("GROQ_API_KEY")
     
@@ -492,8 +602,9 @@ def main():
 
         save = input("Save to .env for future use? (y/n): ")
         if save.lower() == "y":
-            with open(".env", "a") as f:
-                f.write(f"\nGROQ_API_KEY={groq_key}")
+            # with open(".env", "a") as f:
+            #     f.write(f"\nGROQ_API_KEY={groq_key}")
+            _save_env("GROQ_API_KEY", groq_key)
             print("Saved!")
 
         os.environ["GROQ_API_KEY"] = groq_key
@@ -518,10 +629,13 @@ def main():
 
             save = input("Save to .env for future use? (y/n): ")
             if save.lower() == "y":
-                with open(".env", "a") as f:
-                    f.write(f"\nEMAIL_ADDRESS={email_user}")
-                    f.write(f"\nEMAIL_PASSWORD={email_pass}")
-                    f.write(f"\nEMAIL_USERNAME={email_user_name}")
+                # with open(".env", "a") as f:
+                #     f.write(f"\nEMAIL_ADDRESS={email_user}")
+                #     f.write(f"\nEMAIL_PASSWORD={email_pass}")
+                #     f.write(f"\nEMAIL_USERNAME={email_user_name}")
+                _save_env("EMAIL_ADDRESS", email_user)
+                _save_env("EMAIL_PASSWORD", email_pass)
+                _save_env("EMAIL_USERNAME", email_user_name)
 
             os.environ["EMAIL_ADDRESS"] = email_user
             os.environ["EMAIL_PASSWORD"] = email_pass
@@ -538,8 +652,9 @@ def main():
             github_token = input("Enter your GitHub Personal Access Token: ").strip()
             save = input("Save to .env? (y/n): ")
             if save.lower() == "y":
-                with open(".env", "a") as f:
-                    f.write(f"\nGITHUB_PERSONAL_ACCESS_TOKEN={github_token}")
+                # with open(".env", "a") as f:
+                #     f.write(f"\nGITHUB_PERSONAL_ACCESS_TOKEN={github_token}")
+                _save_env("GITHUB_PERSONAL_ACCESS_TOKEN", github_token)
             os.environ["GITHUB_PERSONAL_ACCESS_TOKEN"] = github_token
         else:
             print("GitHub features disabled.")
@@ -547,6 +662,14 @@ def main():
     print("Starting TERMAGENT...")
     app = TermAgent()
     app.run()
+
+def reset_credentials():
+    if ENV_PATH.exists():
+        ENV_PATH.unlink()
+        print("Credentials cleared.")
+    else:
+        print("No saved credentials found.")
+    print("Restart termagent to set up again.")
 
 if __name__ == "__main__":
     main()
