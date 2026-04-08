@@ -157,6 +157,9 @@ Termagent is built on **[LangGraph](https://github.com/langchain-ai/langgraph)**
 
 ![demo-image](assets/graph.png)
 
+### Coder Node Architecture
+![demo-image](assets/coder_node_graph.png)
+
 ### Node Descriptions
 
 | Node | Purpose |

@@ -8,7 +8,7 @@ include = ["termagent*"]
 
 [project]
 name = "termagent-cli"
-version = "1.0.1"
+version = "1.0.2"
 description = "Natural language terminal agent for Windows PowerShell"
 readme = "package_info.md"
 requires-python = ">=3.10"
@@ -19,14 +19,19 @@ dependencies = [
     "langgraph",
     "pydantic",
     "python-dotenv",
-    "ollama",
     "textual",
     "rich",
     "ddgs",
     "mcp",
     "sounddevice",
-    "scipy"
+    "scipy",
+    "numpy",
+    "groq",
+    "python-docx",
+    "pdfplumber",
+    "requests",
 ]
 
 [project.scripts]
 termagent = "termagent.ui:main"
+termagent-reset = "termagent.ui:reset_credentials"
