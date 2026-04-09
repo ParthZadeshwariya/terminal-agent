@@ -560,12 +560,6 @@ def coder_node(state: AgentState) -> AgentState:
     result = coder_app.invoke({
         "task": state["text"],
         "cwd": state["cwd"],
-        "plan": [],
-        "plan_approved": False,
-        "current_index": 0,
-        "context_files": {},
-        "completed": [],
-        "file_confirmed": False,
         "messages": state.get("messages", []),
         "result": ""
     })
